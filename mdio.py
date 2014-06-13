@@ -69,14 +69,17 @@ def format_packet(packet):
             packet.data)
 
 class MdioParser(object):
-    def __init__(self, stream):
+    def __init__(self, stream, is_broadcom):
         super(MdioParser, self).__init__()
         self.stream = stream
+        self.is_broadcom = is_broadcom
+        if not is_broadcom:
+            raise NotImplementedError('Only Broadcom is supported')
 
     def get_packets(self):
         try:
             while True:
-                self.stream.set_clock_phase(1)
+                self.stream.set_clock_phase(0)
                 timestamp = self._read_until_start()
 
                 operation, _ = self.stream.read_bits_as_int(2)
@@ -128,7 +131,7 @@ def main():
 
     stream = read_stream_from_csv(args.input_path)
 
-    parser = MdioParser(stream)
+    parser = MdioParser(stream, args.broadcom)
     for packet in parser.get_packets():
         print format_packet(packet)
 

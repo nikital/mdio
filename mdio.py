@@ -20,7 +20,15 @@ class MdioStream(object):
     def set_clock_phase(self, clock_phase):
         self.clock_phase = clock_phase
 
-    def read_bits_array(self, bit_count):
+    def read_bits_as_int(self, bit_count):
+        bits, first_timestamp = self._read_bits_array(bit_count)
+        result = 0
+        for bit in bits:
+            result <<= 1
+            result |= bit
+        return result, first_timestamp
+
+    def _read_bits_array(self, bit_count):
         bits = []
         first_timestamp = None
         while len(bits) < bit_count:
@@ -28,7 +36,7 @@ class MdioStream(object):
                 raise EOFError()
 
             row = self.rows[self.i]
-            if self._is_data(self.i):
+            if self._should_read_bit(self.i):
                 if first_timestamp is None:
                     first_timestamp = row.timestamp
                 bits.append(row.data)
@@ -36,15 +44,7 @@ class MdioStream(object):
 
         return bits, first_timestamp
 
-    def read_bits_as_int(self, bit_count):
-        bits, first_timestamp = self.read_bits_array(bit_count)
-        result = 0
-        for bit in bits:
-            result <<= 1
-            result |= bit
-        return result, first_timestamp
-
-    def _is_data(self, i):
+    def _should_read_bit(self, i):
         if self.rows[i].clock != self.clock_phase:
             return False
 
@@ -76,7 +76,8 @@ class MdioParser(object):
         try:
             while True:
                 self.stream.set_clock_phase(1)
-                timestamp = self._find_start()
+                timestamp = self._read_until_start()
+
                 operation, _ = self.stream.read_bits_as_int(2)
                 phy_address, _ = self.stream.read_bits_as_int(5)
                 reg_address, _ = self.stream.read_bits_as_int(5)
@@ -91,15 +92,27 @@ class MdioParser(object):
         except EOFError:
             pass
 
-    def _find_start(self):
+    def _read_until_start(self):
         bit = 1
+        preamble_count = 0
         while bit != 0:
             bit, timestamp = self.stream.read_bits_as_int(1)
+            preamble_count += 1
 
+        assert (preamble_count >= 16)
         next_bit, _ = self.stream.read_bits_as_int(1)
         assert (next_bit == 1)
 
         return timestamp
+
+def read_stream_from_csv(input_path):
+    stream = MdioStream()
+    with open(input_path, 'r') as input_file:
+        for timestamp, clock, data in csv.reader(input_file):
+            timestamp = float(timestamp)
+            clock, data = int(clock), int(data)
+            stream.add_row(MdioStream.Row(timestamp, clock, data))
+    return stream
 
 def main():
     if len(sys.argv) != 2:
@@ -107,13 +120,7 @@ def main():
         return
     input_path = sys.argv[1]
 
-    stream = MdioStream()
-
-    with open(input_path, 'r') as input_file:
-        for timestamp, clock, data in csv.reader(input_file):
-            timestamp = float(timestamp)
-            clock, data = int(clock), int(data)
-            stream.add_row(MdioStream.Row(timestamp, clock, data))
+    stream = read_stream_from_csv(input_path)
 
     parser = MdioParser(stream)
     for packet in parser.get_packets():

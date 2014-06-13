@@ -54,6 +54,12 @@ class MdioStream(object):
             return False
         return True
 
+MdioPacket = namedtuple('MdioPacket', [
+    'timestamp', 'operation',
+    'phy_address', 'reg_address',
+    'data'
+    ])
+
 class MdioParser(object):
     def __init__(self, stream):
         super(MdioParser, self).__init__()
@@ -64,7 +70,16 @@ class MdioParser(object):
             while True:
                 self.stream.set_clock_phase(1)
                 timestamp = self._find_start()
-                yield timestamp
+                operation, _ = self.stream.read_bits_as_int(2)
+                phy_address, _ = self.stream.read_bits_as_int(5)
+                reg_address, _ = self.stream.read_bits_as_int(5)
+                turn_around, _ = self.stream.read_bits_as_int(2)
+                data, _ = self.stream.read_bits_as_int(16)
+
+                packet = MdioPacket(timestamp, operation,
+                        phy_address, reg_address,
+                        data)
+                yield packet
 
         except EOFError:
             pass
@@ -105,7 +120,8 @@ def main():
             stream.add_row(MdioStream.Row(timestamp, clock, data))
 
     parser = MdioParser(stream)
-    print parser.get_packets().next()
+    for packet in parser.get_packets():
+        print packet
 
 if __name__ == '__main__':
     main()

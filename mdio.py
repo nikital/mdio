@@ -2,6 +2,7 @@
 
 import sys
 import csv
+import argparse
 from collections import namedtuple
 from itertools import ifilter
 
@@ -114,13 +115,18 @@ def read_stream_from_csv(input_path):
             stream.add_row(MdioStream.Row(timestamp, clock, data))
     return stream
 
-def main():
-    if len(sys.argv) != 2:
-        print 'Usage: {0} [input]'.format(sys.argv[0])
-        return
-    input_path = sys.argv[1]
+def parse_args():
+    parser = argparse.ArgumentParser(description=
+            'Decode MDIO packets from raw bus')
+    parser.add_argument('-b', '--broadcom', action='store_true', default=False,
+            help='use Broadcom non-standard clock')
+    parser.add_argument('input_path')
+    return parser.parse_args()
 
-    stream = read_stream_from_csv(input_path)
+def main():
+    args = parse_args()
+
+    stream = read_stream_from_csv(args.input_path)
 
     parser = MdioParser(stream)
     for packet in parser.get_packets():

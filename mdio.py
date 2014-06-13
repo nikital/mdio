@@ -24,8 +24,11 @@ class MdioStream(object):
         bits = []
         first_timestamp = None
         while len(bits) < bit_count:
+            if not self.i < len(self.rows):
+                raise EOFError()
+
             row = self.rows[self.i]
-            if row.clock == self.clock_phase:
+            if self._is_data(self.i):
                 if first_timestamp is None:
                     first_timestamp = row.timestamp
                 bits.append(row.data)
@@ -41,19 +44,51 @@ class MdioStream(object):
             result |= bit
         return result, first_timestamp
 
+    def _is_data(self, i):
+        if self.rows[i].clock != self.clock_phase:
+            return False
+
+        if i == 0:
+            return True
+        if self.rows[i - 1].clock == self.clock_phase:
+            return False
+        return True
+
 class MdioParser(object):
-    [
-            PREAMBLE,
-            START,
-            OPERATION,
-            PHY_ADDRESS,
-            REG_ADDRESS,
-            TURN_AROUND,
-            DATA
-            ] = range(7)
-    def __init__(self):
+    def __init__(self, stream):
         super(MdioParser, self).__init__()
-        
+        self.stream = stream
+
+    def get_packets(self):
+        try:
+            while True:
+                self.stream.set_clock_phase(1)
+                timestamp = self._find_start()
+                yield timestamp
+
+        except EOFError:
+            pass
+
+    def _find_start(self):
+        bit = 1
+        while bit != 0:
+            bit, timestamp = self.stream.read_bits_as_int(1)
+
+        next_bit, _ = self.stream.read_bits_as_int(1)
+        assert (next_bit == 1)
+
+        return timestamp
+
+def parse_packets_from_stream(stream):
+    [
+        PREAMBLE,
+        START,
+        OPERATION,
+        PHY_ADDRESS,
+        REG_ADDRESS,
+        TURN_AROUND,
+        DATA,
+    ] = range(7)
 
 def main():
     if len(sys.argv) != 2:
@@ -69,8 +104,8 @@ def main():
             clock, data = int(clock), int(data)
             stream.add_row(MdioStream.Row(timestamp, clock, data))
 
-    stream.set_clock_phase(1)
-    print stream.read_bits_as_int(16)
+    parser = MdioParser(stream)
+    print parser.get_packets().next()
 
 if __name__ == '__main__':
     main()

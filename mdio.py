@@ -60,6 +60,13 @@ MdioPacket = namedtuple('MdioPacket', [
     'data'
     ])
 
+def format_packet(packet):
+    return '{:.7f} {} {:#04x} {:#04x} {:#06x}'.format(
+            packet.timestamp,
+            'w' if packet.operation == 1 else 'r',
+            packet.phy_address, packet.reg_address,
+            packet.data)
+
 class MdioParser(object):
     def __init__(self, stream):
         super(MdioParser, self).__init__()
@@ -94,17 +101,6 @@ class MdioParser(object):
 
         return timestamp
 
-def parse_packets_from_stream(stream):
-    [
-        PREAMBLE,
-        START,
-        OPERATION,
-        PHY_ADDRESS,
-        REG_ADDRESS,
-        TURN_AROUND,
-        DATA,
-    ] = range(7)
-
 def main():
     if len(sys.argv) != 2:
         print 'Usage: {0} [input]'.format(sys.argv[0])
@@ -121,7 +117,7 @@ def main():
 
     parser = MdioParser(stream)
     for packet in parser.get_packets():
-        print packet
+        print format_packet(packet)
 
 if __name__ == '__main__':
     main()

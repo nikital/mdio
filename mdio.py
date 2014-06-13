@@ -3,20 +3,57 @@
 import sys
 import csv
 from collections import namedtuple
+from itertools import ifilter
 
-class MdioParser(object):
+class MdioStream(object):
     Row = namedtuple('Row', ['timestamp', 'clock', 'data'])
 
     def __init__(self):
-        super(MdioParser, self).__init__()
+        super(MdioStream, self).__init__()
         self.rows = []
+        self.i = 0
+        self.clock_phase = 0
 
     def add_row(self, row):
         self.rows.append(row)
 
-    def get_packets(self):
-        for row in self.rows:
-            yield row
+    def set_clock_phase(self, clock_phase):
+        self.clock_phase = clock_phase
+
+    def read_bits_array(self, bit_count):
+        bits = []
+        first_timestamp = None
+        while len(bits) < bit_count:
+            row = self.rows[self.i]
+            if row.clock == self.clock_phase:
+                if first_timestamp is None:
+                    first_timestamp = row.timestamp
+                bits.append(row.data)
+            self.i += 1
+
+        return bits, first_timestamp
+
+    def read_bits_as_int(self, bit_count):
+        bits, first_timestamp = self.read_bits_array(bit_count)
+        result = 0
+        for bit in bits:
+            result <<= 1
+            result |= bit
+        return result, first_timestamp
+
+class MdioParser(object):
+    [
+            PREAMBLE,
+            START,
+            OPERATION,
+            PHY_ADDRESS,
+            REG_ADDRESS,
+            TURN_AROUND,
+            DATA
+            ] = range(7)
+    def __init__(self):
+        super(MdioParser, self).__init__()
+        
 
 def main():
     if len(sys.argv) != 2:
@@ -24,16 +61,16 @@ def main():
         return
     input_path = sys.argv[1]
 
-    parser = MdioParser()
+    stream = MdioStream()
 
     with open(input_path, 'r') as input_file:
         for timestamp, clock, data in csv.reader(input_file):
             timestamp = float(timestamp)
             clock, data = int(clock), int(data)
-            parser.add_row(MdioParser.Row(timestamp, clock, data))
+            stream.add_row(MdioStream.Row(timestamp, clock, data))
 
-    for packet in parser.get_packets():
-        print packet
+    stream.set_clock_phase(1)
+    print stream.read_bits_as_int(16)
 
 if __name__ == '__main__':
     main()

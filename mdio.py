@@ -51,7 +51,7 @@ class MdioStream(object):
 
         if i == 0:
             return True
-        if self.rows[i - 1].clock == self.clock_phase:
+        if self.rows[i - 1].clock == self.rows[i].clock:
             return False
         return True
 
@@ -60,11 +60,14 @@ MdioPacket = namedtuple('MdioPacket', [
     'phy_address', 'reg_address',
     'data'
     ])
+MdioPacket.WRITE_OPERATION = 1
+MdioPacket.READ_OPERATION = 2
+MdioPacket.ALLOWED_OPERATIONS = (MdioPacket.WRITE_OPERATION, MdioPacket.READ_OPERATION)
 
 def format_packet(packet):
     return '{:.7f} {} {:#04x} {:#04x} {:#06x}'.format(
             packet.timestamp,
-            'w' if packet.operation == 1 else 'r',
+            'wr' if packet.operation == MdioPacket.WRITE_OPERATION else 'rd',
             packet.phy_address, packet.reg_address,
             packet.data)
 
@@ -73,19 +76,22 @@ class MdioParser(object):
         super(MdioParser, self).__init__()
         self.stream = stream
         self.is_broadcom = is_broadcom
-        if not is_broadcom:
-            raise NotImplementedError('Only Broadcom is supported')
 
     def get_packets(self):
         try:
             while True:
-                self.stream.set_clock_phase(0)
+                self.stream.set_clock_phase(0 if self.is_broadcom else 1)
                 timestamp = self._read_until_start()
 
                 operation, _ = self.stream.read_bits_as_int(2)
+                assert (operation in MdioPacket.ALLOWED_OPERATIONS)
                 phy_address, _ = self.stream.read_bits_as_int(5)
                 reg_address, _ = self.stream.read_bits_as_int(5)
                 turn_around, _ = self.stream.read_bits_as_int(2)
+
+                if operation == MdioPacket.READ_OPERATION:
+                    self.stream.set_clock_phase(0)
+
                 data, _ = self.stream.read_bits_as_int(16)
 
                 packet = MdioPacket(timestamp, operation,
@@ -97,11 +103,15 @@ class MdioParser(object):
             pass
 
     def _read_until_start(self):
-        bit = 1
         preamble_count = 0
-        while bit != 0:
-            bit, timestamp = self.stream.read_bits_as_int(1)
-            preamble_count += 1
+        start_bit = 1
+        while start_bit != 0:
+            start_bit, timestamp = self.stream.read_bits_as_int(1)
+            if start_bit == 0 and preamble_count < 16:
+                preamble_count = 0
+                start_bit = 1
+            else:
+                preamble_count += 1
 
         assert (preamble_count >= 16)
         next_bit, _ = self.stream.read_bits_as_int(1)
